@@ -3,6 +3,7 @@
 import argparse
 import csv
 from datetime import datetime, timezone
+import json
 import math
 from pathlib import Path
 
@@ -16,12 +17,15 @@ STEP = 0.5
 RADIUS = 10.0   
 ################
 
+# Opens a CSV and yields its rows as (timestamp, latitude, longitude).
 def read_csv(path):
     with path.open(newline="", encoding="utf-8-sig") as file:
         for row in csv.DictReader(file):
+            if not row["timestamp"]:
+                raise ValueError(f"Missing timestamp in {path}")
             yield datetime.fromisoformat(row["timestamp"].strip().replace("Z", "+00:00")), float(row["latitude"]), float(row["longitude"])
 
-
+# Parses a GPX file and yields its track points as (timestamp, latitude, longitude).
 def read_gpx(path):
     with path.open(encoding="utf-8") as file:
         gpx = gpxpy.parse(file)
@@ -32,15 +36,9 @@ def read_gpx(path):
                     raise ValueError(f"Missing timestamp in {path}")
                 yield point.time, point.latitude, point.longitude
 
-
-def load_points(folder, grid_path):
+# Load gpx and csv files in folder, remove exact duplicates, sort by timestamp, return (recording_name, timestamp, latitude, longitude)
+def load_points(folder):
     files = sorted((*folder.glob("*.csv"), *folder.glob("*.gpx")))
-    same_path = [path for path in files if path.resolve() == grid_path.resolve()]
-    if same_path:
-        with same_path[0].open(newline="", encoding="utf-8-sig") as file:
-            if next(csv.reader(file), []) != ["east_m", "north_m", "covered"]:
-                raise ValueError(f"Grid output would overwrite input recording: {same_path[0]}")
-    files = [path for path in files if path.resolve() != grid_path.resolve()]
     if not files:
         raise ValueError(f"No CSV or GPX recordings found in {folder}")
 
@@ -61,23 +59,38 @@ def load_points(folder, grid_path):
         raise ValueError("No recorded points found")
     aware = {timestamp.tzinfo is not None for _, timestamp, _, _ in points}
     if len(aware) > 1:
-        raise ValueError("Cannot mix timezone-aware and timezone-naive timestamps")
+        raise ValueError("Mixing timezone-aware and timezone-naive timestamps!")
     points.sort(key=lambda point: point[1].astimezone(timezone.utc) if point[1].tzinfo else point[1])
     return points
 
 
-def local_xy(points):
-    _, _, lat0, lon0 = points[0]
-    xy = []
-    for source, _, lat, lon in points:
+def local_xy(lat_lon_points):
+    _, _, lat0, lon0 = lat_lon_points[0]
+    xy_points = []
+    for source, timestamp, lat, lon in lat_lon_points:
         result = Geodesic.WGS84.Inverse(lat0, lon0, lat, lon)
         azimuth = math.radians(result["azi1"])
         distance = result["s12"]
-        xy.append((source, distance * math.sin(azimuth), distance * math.cos(azimuth)))
-    return xy
+        xy_points.append((source, timestamp, distance * math.sin(azimuth), distance * math.cos(azimuth)))
+    return xy_points
+
+
+def save_origin_metadata(path, points):
+    source, timestamp, latitude, longitude = points[0]
+    metadata = {
+        "origin": {
+            "latitude": latitude,
+            "longitude": longitude,
+            "recording": source,
+            "timestamp": timestamp.isoformat(),
+        },
+        "coordinate_frame": "Local east/north metres from the origin, using WGS84 geodesic distance and azimuth",
+    }
+    path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
 
 
 def save_grid(path, xy):
+
     xmin = math.floor((min(x for _, x, _ in xy) - RADIUS) / STEP)
     xmax = math.ceil((max(x for _, x, _ in xy) + RADIUS) / STEP)
     ymin = math.floor((min(y for _, _, y in xy) - RADIUS) / STEP)
@@ -132,21 +145,23 @@ def main():
     output_folder = Path(__file__).resolve().parent.parent / "outputs" / folder.name
     plot_path = args.plot or output_folder / "recordings_plot.png"
     grid_path = args.grid or output_folder / "coverage_grid.csv"
+    origin_path = output_folder / "coordinate_origin.json"
     sources = (*folder.glob("*.csv"), *folder.glob("*.gpx"))
     if plot_path.resolve() == grid_path.resolve():
         parser.error("Plot and grid outputs must use different paths")
     if any(path.resolve() == plot_path.resolve() for path in sources):
         parser.error("Plot output would overwrite an input recording")
     try:
-        points = load_points(folder, grid_path)
+        points = load_points(folder)
         xy = local_xy(points)
         plot_path.parent.mkdir(parents=True, exist_ok=True)
         grid_path.parent.mkdir(parents=True, exist_ok=True)
         save_plot(plot_path, xy)
         save_grid(grid_path, xy)
+        save_origin_metadata(origin_path, points)
     except (OSError, ValueError, csv.Error) as exc:
         parser.error(str(exc))
-    print(f"Plotted {len(xy)} points: {plot_path}; {grid_path}")
+    print(f"Plotted {len(xy)} points: {plot_path}; {grid_path}; {origin_path}")
 
 
 if __name__ == "__main__":
