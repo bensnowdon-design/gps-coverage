@@ -50,41 +50,41 @@ def load_points(folder, grid_path):
             rows = read_csv(path) if path.suffix.lower() == ".csv" else read_gpx(path)
             for timestamp, lat, lon in rows:
                 key_time = timestamp.astimezone(timezone.utc) if timestamp.tzinfo else timestamp
-                key = (key_time, lat, lon)
+                key = (path.stem, key_time, lat, lon)
                 if key not in seen:
-                    points.append((timestamp, lat, lon))
+                    points.append((path.stem, timestamp, lat, lon))
                     seen.add(key)
         except Exception as exc:
             raise ValueError(f"Could not read {path.name}: {exc}") from exc
 
     if not points:
         raise ValueError("No recorded points found")
-    aware = {timestamp.tzinfo is not None for timestamp, _, _ in points}
+    aware = {timestamp.tzinfo is not None for _, timestamp, _, _ in points}
     if len(aware) > 1:
         raise ValueError("Cannot mix timezone-aware and timezone-naive timestamps")
-    points.sort(key=lambda point: point[0].astimezone(timezone.utc) if point[0].tzinfo else point[0])
+    points.sort(key=lambda point: point[1].astimezone(timezone.utc) if point[1].tzinfo else point[1])
     return points
 
 
 def local_xy(points):
-    _, lat0, lon0 = points[0]
+    _, _, lat0, lon0 = points[0]
     xy = []
-    for _, lat, lon in points:
+    for source, _, lat, lon in points:
         result = Geodesic.WGS84.Inverse(lat0, lon0, lat, lon)
         azimuth = math.radians(result["azi1"])
         distance = result["s12"]
-        xy.append((distance * math.sin(azimuth), distance * math.cos(azimuth)))
+        xy.append((source, distance * math.sin(azimuth), distance * math.cos(azimuth)))
     return xy
 
 
 def save_grid(path, xy):
-    xmin = math.floor((min(x for x, _ in xy) - RADIUS) / STEP)
-    xmax = math.ceil((max(x for x, _ in xy) + RADIUS) / STEP)
-    ymin = math.floor((min(y for _, y in xy) - RADIUS) / STEP)
-    ymax = math.ceil((max(y for _, y in xy) + RADIUS) / STEP)
+    xmin = math.floor((min(x for _, x, _ in xy) - RADIUS) / STEP)
+    xmax = math.ceil((max(x for _, x, _ in xy) + RADIUS) / STEP)
+    ymin = math.floor((min(y for _, _, y in xy) - RADIUS) / STEP)
+    ymax = math.ceil((max(y for _, _, y in xy) + RADIUS) / STEP)
     covered = set()
     reach = math.ceil(RADIUS / STEP)
-    for x, y in xy:
+    for _, x, y in xy:
         ix, iy = round(x / STEP), round(y / STEP)
         for gx in range(ix - reach, ix + reach + 1):
             for gy in range(iy - reach, iy + reach + 1):
@@ -101,10 +101,20 @@ def save_grid(path, xy):
 
 def save_plot(path, xy):
     fig, ax = plt.subplots()
-    for x, y in xy:
-        ax.add_patch(Circle((x, y), RADIUS, fill=False, alpha=0.45))
-    ax.scatter([x for x, _ in xy], [y for _, y in xy], s=12, zorder=2)
+    tracks = {}
+    for source, x, y in xy:
+        tracks.setdefault(source, []).append((x, y))
+    cmap = plt.get_cmap("turbo")
+    count = len(tracks)
+    for index, (name, points) in enumerate(sorted(tracks.items())):
+        color = cmap(index / max(count - 1, 1))
+        xs, ys = zip(*points)
+        ax.plot(xs, ys, color=color, linewidth=1, label=name, zorder=1)
+        for x, y in points:
+            ax.add_patch(Circle((x, y), RADIUS, fill=False, edgecolor=color, alpha=0.3))
+        ax.scatter(xs, ys, s=12, color=color, zorder=2)
     ax.set(xlabel="East (m)", ylabel="North (m)", title="Recording coverage")
+    ax.legend(title="Recording", loc="best")
     ax.set_aspect("equal", adjustable="datalim")
     ax.grid(True, alpha=0.25)
     fig.tight_layout()
