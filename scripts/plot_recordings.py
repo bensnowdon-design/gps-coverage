@@ -91,6 +91,36 @@ def save_origin_metadata(path, points):
 
 def save_grid(path, xy):
 
+    # Group points by recording name
+    tracks = {}
+    for source, timestamp, x, y in xy:
+        tracks.setdefault(source, []).append((timestamp, x, y))
+
+    # For each recording
+    for source in tracks.keys():
+        # Sort points by timestamp
+        tracks[source].sort(key=lambda point: point[0])
+
+        # Start a new plotted path for this recording
+        # For each point
+        for point in tracks[source]:
+            # If there is a next point
+            if point != tracks[source][-1]:
+                next_point = tracks[source][tracks[source].index(point) + 1]
+                # Direction vector = next point's (east, north) minus this point's
+                direction_vector = (next_point[1] - point[1], next_point[2] - point[2])
+            elif point != tracks[source][0]:
+                prev_point = tracks[source][tracks[source].index(point) - 1]
+                # Direction vector = this point's (east, north) minus previous point's
+                direction_vector = (point[1] - prev_point[1], point[2] - prev_point[2])
+            else:
+                # Skip the point
+                continue
+
+            direction_vector = direction_vector.normalize()
+            # Add this point and direction vector to the coverage points
+            
+
     xmin = math.floor((min(x for _, x, _ in xy) - RADIUS) / STEP)
     xmax = math.ceil((max(x for _, x, _ in xy) + RADIUS) / STEP)
     ymin = math.floor((min(y for _, _, y in xy) - RADIUS) / STEP)

@@ -1,0 +1,9 @@
+{
+  "origin": {
+    "latitude": 51.76389345302696,
+    "longitude": -1.253452227555758,
+    "recording": "2026-10-13_15-59-55",
+    "timestamp": "2026-10-13T15:59:55"
+  },
+  "coordinate_frame": "Local east/north metres from the origin, using WGS84 geodesic distance and azimuth"
+}
