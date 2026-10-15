@@ -3,7 +3,6 @@
 import argparse
 import csv
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
 import math
 from pathlib import Path
 
@@ -12,16 +11,10 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from geographiclib.geodesic import Geodesic
 
-##################
-STEP = 0.5      ##
-RADIUS = 10.0   ##
-##################
-
-def utc_time(timestamp):
-    if timestamp.utcoffset() is None:
-        timestamp = timestamp.replace(tzinfo=ZoneInfo("Europe/London"))
-    return timestamp.astimezone(timezone.utc)
-
+################
+STEP = 0.5      
+RADIUS = 10.0   
+################
 
 def read_csv(path):
     with path.open(newline="", encoding="utf-8-sig") as file:
@@ -56,40 +49,42 @@ def load_points(folder, grid_path):
         try:
             rows = read_csv(path) if path.suffix.lower() == ".csv" else read_gpx(path)
             for timestamp, lat, lon in rows:
-                key_time = utc_time(timestamp)
+                key_time = timestamp.astimezone(timezone.utc) if timestamp.tzinfo else timestamp
                 key = (key_time, lat, lon)
                 if key not in seen:
-                    points.append((path.stem, timestamp, lat, lon))
+                    points.append((timestamp, lat, lon))
                     seen.add(key)
         except Exception as exc:
             raise ValueError(f"Could not read {path.name}: {exc}") from exc
 
     if not points:
         raise ValueError("No recorded points found")
-    points.sort(key=lambda point: utc_time(point[1]))
+    aware = {timestamp.tzinfo is not None for timestamp, _, _ in points}
+    if len(aware) > 1:
+        raise ValueError("Cannot mix timezone-aware and timezone-naive timestamps")
+    points.sort(key=lambda point: point[0].astimezone(timezone.utc) if point[0].tzinfo else point[0])
     return points
 
 
 def local_xy(points):
-    _, _, lat0, lon0 = points[0]
+    _, lat0, lon0 = points[0]
     xy = []
-    for source, timestamp, lat, lon in points:
+    for _, lat, lon in points:
         result = Geodesic.WGS84.Inverse(lat0, lon0, lat, lon)
         azimuth = math.radians(result["azi1"])
         distance = result["s12"]
-        xy.append((source, timestamp, distance * math.sin(azimuth), distance * math.cos(azimuth)))
+        xy.append((distance * math.sin(azimuth), distance * math.cos(azimuth)))
     return xy
 
 
 def save_grid(path, xy):
-    coords = [(x, y) for _, _, x, y in xy]
-    xmin = math.floor((min(x for x, _ in coords) - RADIUS) / STEP)
-    xmax = math.ceil((max(x for x, _ in coords) + RADIUS) / STEP)
-    ymin = math.floor((min(y for _, y in coords) - RADIUS) / STEP)
-    ymax = math.ceil((max(y for _, y in coords) + RADIUS) / STEP)
+    xmin = math.floor((min(x for x, _ in xy) - RADIUS) / STEP)
+    xmax = math.ceil((max(x for x, _ in xy) + RADIUS) / STEP)
+    ymin = math.floor((min(y for _, y in xy) - RADIUS) / STEP)
+    ymax = math.ceil((max(y for _, y in xy) + RADIUS) / STEP)
     covered = set()
     reach = math.ceil(RADIUS / STEP)
-    for x, y in coords:
+    for x, y in xy:
         ix, iy = round(x / STEP), round(y / STEP)
         for gx in range(ix - reach, ix + reach + 1):
             for gy in range(iy - reach, iy + reach + 1):
@@ -106,17 +101,10 @@ def save_grid(path, xy):
 
 def save_plot(path, xy):
     fig, ax = plt.subplots()
-    tracks = {}
-    for source, _, x, y in xy:
-        tracks.setdefault(source, []).append((x, y))
-    for name, points in tracks.items():
-        xs, ys = zip(*points)
-        (line,) = ax.plot(xs, ys, linewidth=1, alpha=0.8, label=name, zorder=1)
-        for x, y in points:
-            ax.add_patch(Circle((x, y), RADIUS, fill=False, edgecolor=line.get_color(), alpha=0.35))
-        ax.scatter(xs, ys, s=12, color=line.get_color(), zorder=2)
+    for x, y in xy:
+        ax.add_patch(Circle((x, y), RADIUS, fill=False, alpha=0.45))
+    ax.scatter([x for x, _ in xy], [y for _, y in xy], s=12, zorder=2)
     ax.set(xlabel="East (m)", ylabel="North (m)", title="Recording coverage")
-    ax.legend(title="Recording", loc="best")
     ax.set_aspect("equal", adjustable="datalim")
     ax.grid(True, alpha=0.25)
     fig.tight_layout()
