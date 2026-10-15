@@ -1,0 +1,152 @@
+"""Plot GPS recordings and export a 50 cm coverage grid."""
+
+import argparse
+import csv
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+import math
+from pathlib import Path
+
+import gpxpy
+import matplotlib.pyplot as plt
+from matplotlib.patches import Circle
+from geographiclib.geodesic import Geodesic
+
+##################
+STEP = 0.5      ##
+RADIUS = 10.0   ##
+##################
+
+def utc_time(timestamp):
+    if timestamp.utcoffset() is None:
+        timestamp = timestamp.replace(tzinfo=ZoneInfo("Europe/London"))
+    return timestamp.astimezone(timezone.utc)
+
+
+def read_csv(path):
+    with path.open(newline="", encoding="utf-8-sig") as file:
+        for row in csv.DictReader(file):
+            yield datetime.fromisoformat(row["timestamp"].strip().replace("Z", "+00:00")), float(row["latitude"]), float(row["longitude"])
+
+
+def read_gpx(path):
+    with path.open(encoding="utf-8") as file:
+        gpx = gpxpy.parse(file)
+    for track in gpx.tracks:
+        for segment in track.segments:
+            for point in segment.points:
+                if point.time is None:
+                    raise ValueError(f"Missing timestamp in {path}")
+                yield point.time, point.latitude, point.longitude
+
+
+def load_points(folder, grid_path):
+    files = sorted((*folder.glob("*.csv"), *folder.glob("*.gpx")))
+    same_path = [path for path in files if path.resolve() == grid_path.resolve()]
+    if same_path:
+        with same_path[0].open(newline="", encoding="utf-8-sig") as file:
+            if next(csv.reader(file), []) != ["east_m", "north_m", "covered"]:
+                raise ValueError(f"Grid output would overwrite input recording: {same_path[0]}")
+    files = [path for path in files if path.resolve() != grid_path.resolve()]
+    if not files:
+        raise ValueError(f"No CSV or GPX recordings found in {folder}")
+
+    points, seen = [], set()
+    for path in files:
+        try:
+            rows = read_csv(path) if path.suffix.lower() == ".csv" else read_gpx(path)
+            for timestamp, lat, lon in rows:
+                key_time = utc_time(timestamp)
+                key = (key_time, lat, lon)
+                if key not in seen:
+                    points.append((path.stem, timestamp, lat, lon))
+                    seen.add(key)
+        except Exception as exc:
+            raise ValueError(f"Could not read {path.name}: {exc}") from exc
+
+    if not points:
+        raise ValueError("No recorded points found")
+    points.sort(key=lambda point: utc_time(point[1]))
+    return points
+
+
+def local_xy(points):
+    _, _, lat0, lon0 = points[0]
+    xy = []
+    for source, timestamp, lat, lon in points:
+        result = Geodesic.WGS84.Inverse(lat0, lon0, lat, lon)
+        azimuth = math.radians(result["azi1"])
+        distance = result["s12"]
+        xy.append((source, timestamp, distance * math.sin(azimuth), distance * math.cos(azimuth)))
+    return xy
+
+
+def save_grid(path, xy):
+    coords = [(x, y) for _, _, x, y in xy]
+    xmin = math.floor((min(x for x, _ in coords) - RADIUS) / STEP)
+    xmax = math.ceil((max(x for x, _ in coords) + RADIUS) / STEP)
+    ymin = math.floor((min(y for _, y in coords) - RADIUS) / STEP)
+    ymax = math.ceil((max(y for _, y in coords) + RADIUS) / STEP)
+    covered = set()
+    reach = math.ceil(RADIUS / STEP)
+    for x, y in coords:
+        ix, iy = round(x / STEP), round(y / STEP)
+        for gx in range(ix - reach, ix + reach + 1):
+            for gy in range(iy - reach, iy + reach + 1):
+                cx, cy = gx * STEP, gy * STEP
+                if (cx - x) ** 2 + (cy - y) ** 2 <= RADIUS ** 2:
+                    covered.add((gx, gy))
+    with path.open("w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(("east_m", "north_m", "covered"))
+        for gx in range(xmin, xmax + 1):
+            for gy in range(ymin, ymax + 1):
+                writer.writerow((f"{gx * STEP:.2f}", f"{gy * STEP:.2f}", int((gx, gy) in covered)))
+
+
+def save_plot(path, xy):
+    fig, ax = plt.subplots()
+    tracks = {}
+    for source, _, x, y in xy:
+        tracks.setdefault(source, []).append((x, y))
+    for name, points in tracks.items():
+        xs, ys = zip(*points)
+        (line,) = ax.plot(xs, ys, linewidth=1, alpha=0.8, label=name, zorder=1)
+        for x, y in points:
+            ax.add_patch(Circle((x, y), RADIUS, fill=False, edgecolor=line.get_color(), alpha=0.35))
+        ax.scatter(xs, ys, s=12, color=line.get_color(), zorder=2)
+    ax.set(xlabel="East (m)", ylabel="North (m)", title="Recording coverage")
+    ax.legend(title="Recording", loc="best")
+    ax.set_aspect("equal", adjustable="datalim")
+    ax.grid(True, alpha=0.25)
+    fig.tight_layout()
+    fig.savefig(path, dpi=200)
+    plt.close(fig)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("folder", type=Path)
+    parser.add_argument("--plot", type=Path)
+    parser.add_argument("--grid", type=Path)
+    args = parser.parse_args()
+    folder = args.folder
+    plot_path = args.plot or folder / "recordings_plot.png"
+    grid_path = args.grid or folder / "coverage_grid.csv"
+    sources = (*folder.glob("*.csv"), *folder.glob("*.gpx"))
+    if plot_path.resolve() == grid_path.resolve():
+        parser.error("Plot and grid outputs must use different paths")
+    if any(path.resolve() == plot_path.resolve() for path in sources):
+        parser.error("Plot output would overwrite an input recording")
+    try:
+        points = load_points(folder, grid_path)
+        xy = local_xy(points)
+        save_plot(plot_path, xy)
+        save_grid(grid_path, xy)
+    except (OSError, ValueError, csv.Error) as exc:
+        parser.error(str(exc))
+    print(f"Plotted {len(xy)} points: {plot_path}; {grid_path}")
+
+
+if __name__ == "__main__":
+    main()
