@@ -22,10 +22,10 @@ python3 -m pip install -r requirements.txt
 Generate a recording plot and coverage grid:
 
 ```sh
-python3 scripts/plot_recordings.py data/recordings \
-  --plot outputs/recordings_plot.png \
-  --grid outputs/coverage_grid.csv
+python3 scripts/plot_recordings.py data/recordings
 ```
+
+By default, outputs go to `outputs/<input-folder-name>/`. For example, the command above writes `outputs/recordings/recordings_plot.png` and `outputs/recordings/coverage_grid.csv`. Use `--plot` or `--grid` to override either output path.
 
 Render the grid CSV as an image:
 
