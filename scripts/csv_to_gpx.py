@@ -8,15 +8,17 @@ from pathlib import Path
 import gpxpy.gpx
 
 
-def convert_folder(folder):
+def convert_folder(folder, output_dir=None):
     input_files = sorted(Path(folder).glob("*.csv"))
     if not input_files:
         print(f"No CSV files found in {folder}")
         return
 
     print(f"Converting {len(input_files)} CSV file(s) to GPX...")
+    output_dir = Path(output_dir) if output_dir else Path(folder)
+    output_dir.mkdir(parents=True, exist_ok=True)
     for input_csv in input_files:
-        output_gpx = input_csv.with_suffix(".gpx")
+        output_gpx = output_dir / input_csv.with_suffix(".gpx").name
         gpx = gpxpy.gpx.GPX()
         track = gpxpy.gpx.GPXTrack()
         segment = gpxpy.gpx.GPXTrackSegment()
@@ -41,8 +43,9 @@ def convert_folder(folder):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("folder")
+    parser.add_argument("--output-dir", help="directory for converted GPX files (default: input folder)")
     args = parser.parse_args()
-    convert_folder(args.folder)
+    convert_folder(args.folder, args.output_dir)
 
 
 if __name__ == "__main__":
