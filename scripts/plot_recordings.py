@@ -119,8 +119,9 @@ def main():
     parser.add_argument("--grid", type=Path)
     args = parser.parse_args()
     folder = args.folder
-    plot_path = args.plot or folder / "recordings_plot.png"
-    grid_path = args.grid or folder / "coverage_grid.csv"
+    output_folder = Path(__file__).resolve().parent.parent / "outputs" / folder.name
+    plot_path = args.plot or output_folder / "recordings_plot.png"
+    grid_path = args.grid or output_folder / "coverage_grid.csv"
     sources = (*folder.glob("*.csv"), *folder.glob("*.gpx"))
     if plot_path.resolve() == grid_path.resolve():
         parser.error("Plot and grid outputs must use different paths")
@@ -129,6 +130,8 @@ def main():
     try:
         points = load_points(folder, grid_path)
         xy = local_xy(points)
+        plot_path.parent.mkdir(parents=True, exist_ok=True)
+        grid_path.parent.mkdir(parents=True, exist_ok=True)
         save_plot(plot_path, xy)
         save_grid(grid_path, xy)
     except (OSError, ValueError, csv.Error) as exc:
