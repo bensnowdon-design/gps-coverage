@@ -9,7 +9,7 @@ from pathlib import Path
 
 import gpxpy
 import matplotlib.pyplot as plt
-from matplotlib.patches import Circle
+from matplotlib.patches import Polygon
 from geographiclib.geodesic import Geodesic
 
 ################
@@ -89,51 +89,65 @@ def save_origin_metadata(path, points):
     path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
 
 
-def save_grid(path, xy):
-
-    # Group points by recording name
+def iter_segments(xy):
+    """Yield nonzero adjacent path segments, ordered by time within each recording."""
     tracks = {}
     for source, timestamp, x, y in xy:
         tracks.setdefault(source, []).append((timestamp, x, y))
 
-    # For each recording
-    for source in tracks.keys():
-        # Sort points by timestamp
-        tracks[source].sort(key=lambda point: point[0])
+    for source, points in tracks.items():
+        points.sort(key=lambda point: point[0])
+        for first, second in zip(points, points[1:]):
+            _, x1, y1 = first
+            _, x2, y2 = second
+            if x1 != x2 or y1 != y2:
+                yield source, (x1, y1), (x2, y2)
 
-        # Start a new plotted path for this recording
-        # For each point
-        for point in tracks[source]:
-            # If there is a next point
-            if point != tracks[source][-1]:
-                next_point = tracks[source][tracks[source].index(point) + 1]
-                # Direction vector = next point's (east, north) minus this point's
-                direction_vector = (next_point[1] - point[1], next_point[2] - point[2])
-            elif point != tracks[source][0]:
-                prev_point = tracks[source][tracks[source].index(point) - 1]
-                # Direction vector = this point's (east, north) minus previous point's
-                direction_vector = (point[1] - prev_point[1], point[2] - prev_point[2])
-            else:
-                # Skip the point
-                continue
 
-            direction_vector = direction_vector.normalize()
-            # Add this point and direction vector to the coverage points
-            
+def segment_covers_cell(start, end, cell_x, cell_y):
+    """Return whether a cell center is in a 90-degree cone swept along a segment."""
+    x1, y1 = start
+    x2, y2 = end
+    dx, dy = x2 - x1, y2 - y1
+    length = math.hypot(dx, dy)
+    if length == 0:
+        return False
 
-    xmin = math.floor((min(x for _, x, _ in xy) - RADIUS) / STEP)
-    xmax = math.ceil((max(x for _, x, _ in xy) + RADIUS) / STEP)
-    ymin = math.floor((min(y for _, _, y in xy) - RADIUS) / STEP)
-    ymax = math.ceil((max(y for _, _, y in xy) + RADIUS) / STEP)
+    unit_x, unit_y = dx / length, dy / length
+    offset_x, offset_y = cell_x - x1, cell_y - y1
+    along = offset_x * unit_x + offset_y * unit_y
+    across = abs(-offset_x * unit_y + offset_y * unit_x)
+
+    if across > RADIUS:
+        return False
+
+    # Along the path, the cone apex can range from start to end. At any
+    # apex, the cell must be ahead, within 45 degrees, and within RADIUS.
+    minimum_along = max(0.0, along - length, across)
+    maximum_along = min(along, math.sqrt(max(0.0, RADIUS**2 - across**2)))
+    return minimum_along <= maximum_along
+
+
+def save_grid(path, xy):
+    xmin = math.floor((min(x for _, _, x, _ in xy) - RADIUS) / STEP)
+    xmax = math.ceil((max(x for _, _, x, _ in xy) + RADIUS) / STEP)
+    ymin = math.floor((min(y for _, _, _, y in xy) - RADIUS) / STEP)
+    ymax = math.ceil((max(y for _, _, _, y in xy) + RADIUS) / STEP)
+
     covered = set()
-    reach = math.ceil(RADIUS / STEP)
-    for _, x, y in xy:
-        ix, iy = round(x / STEP), round(y / STEP)
-        for gx in range(ix - reach, ix + reach + 1):
-            for gy in range(iy - reach, iy + reach + 1):
-                cx, cy = gx * STEP, gy * STEP
-                if (cx - x) ** 2 + (cy - y) ** 2 <= RADIUS ** 2:
+    for _, start, end in iter_segments(xy):
+        x1, y1 = start
+        x2, y2 = end
+        gx_min = math.floor((min(x1, x2) - RADIUS) / STEP)
+        gx_max = math.ceil((max(x1, x2) + RADIUS) / STEP)
+        gy_min = math.floor((min(y1, y2) - RADIUS) / STEP)
+        gy_max = math.ceil((max(y1, y2) + RADIUS) / STEP)
+
+        for gx in range(gx_min, gx_max + 1):
+            for gy in range(gy_min, gy_max + 1):
+                if segment_covers_cell(start, end, gx * STEP, gy * STEP):
                     covered.add((gx, gy))
+
     with path.open("w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
         writer.writerow(("east_m", "north_m", "covered"))
@@ -145,17 +159,46 @@ def save_grid(path, xy):
 def save_plot(path, xy):
     fig, ax = plt.subplots()
     tracks = {}
-    for source, x, y in xy:
-        tracks.setdefault(source, []).append((x, y))
-    cmap = plt.get_cmap("turbo")
+    for source, timestamp, x, y in xy:
+        tracks.setdefault(source, []).append((timestamp, x, y))
+    cmap = plt.get_cmap("Dark2")
     count = len(tracks)
-    for index, (name, points) in enumerate(sorted(tracks.items())):
+    for index, (name, track_points) in enumerate(sorted(tracks.items())):
         color = cmap(index / max(count - 1, 1))
+        track_points.sort(key=lambda point: point[0])
+        points = [(x, y) for _, x, y in track_points]
         xs, ys = zip(*points)
         ax.plot(xs, ys, color=color, linewidth=1, label=name, zorder=1)
-        for x, y in points:
-            ax.add_patch(Circle((x, y), RADIUS, fill=False, edgecolor=color, alpha=0.3))
         ax.scatter(xs, ys, s=12, color=color, zorder=2)
+
+        for _, start, end in iter_segments(
+            [(name, timestamp, x, y) for timestamp, x, y in track_points]
+        ):
+            x1, y1 = start
+            x2, y2 = end
+            dx, dy = x2 - x1, y2 - y1
+            length = math.hypot(dx, dy)
+            unit_x, unit_y = dx / length, dy / length
+            normal_x, normal_y = -unit_y, unit_x
+            half_width = RADIUS / math.sqrt(2)
+
+            # Draw the rear V, the circular front cap, and both flanks.
+            local_boundary = [(half_width, half_width)]
+            for angle in range(45, -46, -5):
+                radians = math.radians(angle)
+                local_boundary.append((
+                    length + RADIUS * math.cos(radians),
+                    RADIUS * math.sin(radians),
+                ))
+            local_boundary.extend(((half_width, -half_width), (0, 0)))
+            boundary = [
+                (
+                    x1 + along * unit_x + across * normal_x,
+                    y1 + along * unit_y + across * normal_y,
+                )
+                for along, across in local_boundary
+            ]
+            ax.add_patch(Polygon(boundary, closed=True, facecolor=color, edgecolor="none", alpha=0.2))
     ax.set(xlabel="East (m)", ylabel="North (m)", title="Recording coverage")
     ax.legend(title="Recording", loc="best")
     ax.set_aspect("equal", adjustable="datalim")
