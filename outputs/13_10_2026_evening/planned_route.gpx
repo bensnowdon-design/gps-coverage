@@ -2,67 +2,67 @@
 <gpx xmlns="http://www.topografix.com/GPX/1/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd" version="1.1" creator="GPS Coverage route planner">
   <rte>
     <name>Coverage route</name>
-    <rtept lat="51.7637650321916" lon="-1.252550825935608">
+    <rtept lat="51.76376503515284" lon="-1.2525508321344834">
       <name>Start</name>
     </rtept>
-    <rtept lat="51.763907857329045" lon="-1.2528987737866248">
+    <rtept lat="51.76390786059017" lon="-1.2528987753850975">
       <name>Point 1</name>
     </rtept>
-    <rtept lat="51.76393776756316" lon="-1.2526120647624586">
+    <rtept lat="51.76393777041697" lon="-1.2526120709834276">
       <name>Point 2</name>
     </rtept>
-    <rtept lat="51.76371086219935" lon="-1.2523789238390142">
+    <rtept lat="51.76371085894625" lon="-1.2523789170827284">
       <name>Point 3</name>
     </rtept>
-    <rtept lat="51.7634793012936" lon="-1.2522165131120995">
+    <rtept lat="51.76347930564714" lon="-1.2522165174108408">
       <name>Point 4</name>
     </rtept>
-    <rtept lat="51.76355971058845" lon="-1.2518080192159378">
+    <rtept lat="51.763559708061486" lon="-1.2518080192093946">
       <name>Point 5</name>
     </rtept>
-    <rtept lat="51.76356594253108" lon="-1.2513836661592976">
+    <rtept lat="51.76356594451725" lon="-1.2513836725395981">
       <name>Point 6</name>
     </rtept>
-    <rtept lat="51.76334753679947" lon="-1.2511324563480701">
+    <rtept lat="51.76334753435062" lon="-1.251132450157024">
       <name>Point 7</name>
     </rtept>
-    <rtept lat="51.76309202287516" lon="-1.2510256164674867">
+    <rtept lat="51.76309202418915" lon="-1.2510256123341623">
       <name>Point 8</name>
     </rtept>
-    <rtept lat="51.76285678147341" lon="-1.251221657778023">
+    <rtept lat="51.76285678059573" lon="-1.2512216646443748">
       <name>Point 9</name>
     </rtept>
-    <rtept lat="51.762724918821235" lon="-1.2515800325820599">
+    <rtept lat="51.76272491792223" lon="-1.2515800284135639">
       <name>Point 10</name>
     </rtept>
-    <rtept lat="51.76296846149041" lon="-1.2517607741343535">
+    <rtept lat="51.76296845992575" lon="-1.2517607728911182">
       <name>Point 11</name>
     </rtept>
-    <rtept lat="51.76322478187531" lon="-1.2517122001621181">
+    <rtept lat="51.76322477817289" lon="-1.2517122020967357">
       <name>Point 12</name>
     </rtept>
-    <rtept lat="51.76332898953892" lon="-1.2513440458734248">
+    <rtept lat="51.76332898789191" lon="-1.2513440431610174">
       <name>Point 13</name>
     </rtept>
-    <rtept lat="51.763067805512534" lon="-1.2512978945348059">
+    <rtept lat="51.76306780583872" lon="-1.2512979010062795">
       <name>Point 14</name>
     </rtept>
-    <rtept lat="51.76291600565456" lon="-1.251490092967218">
+    <rtept lat="51.762916004719955" lon="-1.2514900991124494">
       <name>Point 15</name>
     </rtept>
-    <rtept lat="51.76314895900722" lon="-1.2515246587479756">
+    <rtept lat="51.7631489624474" lon="-1.2515246659499935">
       <name>Point 16</name>
     </rtept>
-    <rtept lat="51.763212409513976" lon="-1.251328769428575">
+    <rtept lat="51.76321241156967" lon="-1.2513287680891836">
       <name>Point 17</name>
     </rtept>
-    <rtept lat="51.76323189396218" lon="-1.251268339696981">
+    <rtept lat="51.76323189011082" lon="-1.251268344372956">
       <name>Point 18</name>
     </rtept>
-    <rtept lat="51.76344910251603" lon="-1.2514119009172562">
+    <rtept lat="51.76344910438777" lon="-1.2514119076032293">
       <name>Point 19</name>
     </rtept>
-    <rtept lat="51.76355931899012" lon="-1.251411664980829">
+    <rtept lat="51.76355931719633" lon="-1.251411665626783">
       <name>End</name>
     </rtept>
   </rte>
