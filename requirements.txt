@@ -3,3 +3,4 @@ geographiclib
 matplotlib
 numpy
 shapely
+scipy
