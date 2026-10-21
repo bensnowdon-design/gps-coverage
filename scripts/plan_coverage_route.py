@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import ndimage
 from geographiclib.geodesic import Geodesic
-from shapely.geometry import Point, box
+from shapely.geometry import LineString, Point, box
 from shapely.ops import unary_union
 
 
@@ -187,10 +187,34 @@ def turn_penalty(route, points, reward, turn_cost):
     return reward * turn_cost * angle / math.pi
 
 
+def crossing_count(route, points):
+    """Count interior intersections with earlier, non-adjacent route segments."""
+    if len(route) < 3:
+        return 0
+    previous_segments = [LineString((route[i], route[i + 1]))
+                         for i in range(len(route) - 2)]
+    crossings = set()
+    for start, end in zip(points, points[1:]):
+        candidate = LineString((start, end))
+        for previous in previous_segments:
+            intersection = candidate.intersection(previous)
+            if intersection.is_empty:
+                continue
+            intersections = ([intersection] if intersection.geom_type == "Point" else
+                             list(intersection.geoms) if hasattr(intersection, "geoms") else [])
+            for point in intersections:
+                if point.geom_type != "Point":
+                    continue
+                if point.distance(Point(start)) <= 0.05 or point.distance(Point(end)) <= 0.05:
+                    continue
+                crossings.add((round(point.x, 2), round(point.y, 2)))
+    return len(crossings)
+
+
 def plan_route(targets, initial, xs, ys, original, step, radius, coverage_reward,
                track_reward, chunks, track_join_distance, distance_cost,
                max_distance, max_stops, max_track_segments, max_leg_length,
-               turn_cost=0.2):
+               turn_cost=0.75, crossing_cost=0.2):
     route = [initial]
     actions = []
     remaining = list(targets)
@@ -210,7 +234,8 @@ def plan_route(targets, initial, xs, ys, original, step, radius, coverage_reward
             gained = path_covered_cells(points, xs, ys, step, radius) - original - covered
             reward = coverage_reward * len(gained)
             score = (reward - distance_cost * travel
-                     - turn_penalty(route, points, reward, turn_cost))
+                     - turn_penalty(route, points, reward, turn_cost)
+                     - crossing_cost * reward * crossing_count(route, points))
             if score > 0:
                 choices.append((score, "target", points, gained, travel, target, None))
 
@@ -229,7 +254,8 @@ def plan_route(targets, initial, xs, ys, original, step, radius, coverage_reward
                 bonus = track_reward
                 reward = coverage_reward * len(gained) + bonus
                 score = (reward - distance_cost * travel
-                         - turn_penalty(route, points, reward, turn_cost))
+                         - turn_penalty(route, points, reward, turn_cost)
+                         - crossing_cost * reward * crossing_count(route, points))
                 if score > 0:
                     choices.append((score, "track", points, gained, travel,
                                     (track_id, start, end), chunk_id))
@@ -319,10 +345,11 @@ def main():
         "seed": (int, 42), "sampling-attempts": (int, 5000),
         "min-region-area": (float, 5.0), "coverage-reward": (float, None),
         "track-reward": (float, 50.0), "track-max-length": (float, None),
-        "track-join-distance": (float, 15.0), "max-track-segments": (int, None),
+        "track-join-distance": (float, 10.0), "max-track-segments": (int, None),
         "distance-cost": (float, None), "max-distance": (float, None),
         "max-stops": (int, 50), "max-leg-length": (float, None),
-        "turn-cost": (float, 0.8),
+        "turn-cost": (float, 0.75),
+        "crossing-cost": (float, 0.2),
     }
     for option, (value_type, default) in advanced.items():
         parser.add_argument(f"--{option}", type=value_type, default=default,
@@ -356,6 +383,8 @@ def main():
         parser.error("Track reward and track segment limit cannot be negative")
     if args.turn_cost < 0:
         parser.error("Turn cost cannot be negative")
+    if args.crossing_cost < 0:
+        parser.error("Crossing cost cannot be negative")
     output = args.output or args.grid.with_name("planned_route.csv")
     plot_path = args.plot or output.with_suffix(".png")
     try:
@@ -380,7 +409,7 @@ def main():
             targets, start, east, north, covered_cells, args.grid_step, args.sensor_radius,
             args.coverage_reward, args.track_reward, chunks, args.track_join_distance,
             args.distance_cost, args.max_distance, args.max_stops, args.max_track_segments,
-            args.max_leg_length, args.turn_cost,
+            args.max_leg_length, args.turn_cost, args.crossing_cost,
         )
         output.parent.mkdir(parents=True, exist_ok=True)
         with output.open("w", newline="", encoding="utf-8") as file:
