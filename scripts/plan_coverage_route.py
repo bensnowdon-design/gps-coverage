@@ -169,8 +169,8 @@ def path_covered_cells(points, xs, ys, step, radius):
     return cells
 
 
-def turn_penalty(route, points, reward, turn_cost):
-    """Penalize heading changes by a fraction of the candidate's reward."""
+def turn_penalty(route, points, reward, travel, distance_cost, turn_cost):
+    """Penalize sharp turns and make long legs after them increasingly costly."""
     if len(route) < 2 or turn_cost <= 0:
         return 0.0
     previous = route[-2]
@@ -183,8 +183,10 @@ def turn_penalty(route, points, reward, turn_cost):
         return 0.0
     dot = incoming[0] * outgoing[0] + incoming[1] * outgoing[1]
     cross = incoming[0] * outgoing[1] - incoming[1] * outgoing[0]
-    angle = abs(math.atan2(cross, dot))
-    return reward * turn_cost * angle / math.pi
+    severity = abs(math.atan2(cross, dot)) / math.pi
+    reward_penalty = reward * turn_cost * severity
+    long_leg_penalty = distance_cost * travel * 10 * turn_cost * severity**2
+    return reward_penalty + long_leg_penalty
 
 
 def crossing_count(route, points):
@@ -234,7 +236,7 @@ def plan_route(targets, initial, xs, ys, original, step, radius, coverage_reward
             gained = path_covered_cells(points, xs, ys, step, radius) - original - covered
             reward = coverage_reward * len(gained)
             score = (reward - distance_cost * travel
-                     - turn_penalty(route, points, reward, turn_cost)
+                     - turn_penalty(route, points, reward, travel, distance_cost, turn_cost)
                      - crossing_cost * reward * crossing_count(route, points))
             if score > 0:
                 choices.append((score, "target", points, gained, travel, target, None))
@@ -254,7 +256,7 @@ def plan_route(targets, initial, xs, ys, original, step, radius, coverage_reward
                 bonus = track_reward
                 reward = coverage_reward * len(gained) + bonus
                 score = (reward - distance_cost * travel
-                         - turn_penalty(route, points, reward, turn_cost)
+                         - turn_penalty(route, points, reward, travel, distance_cost, turn_cost)
                          - crossing_cost * reward * crossing_count(route, points))
                 if score > 0:
                     choices.append((score, "track", points, gained, travel,
