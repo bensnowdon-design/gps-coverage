@@ -6,7 +6,10 @@ import math
 from pathlib import Path
 
 import gpxpy
+import gpxpy.gpx
 import matplotlib.pyplot as plt
+import matplotlib.patheffects as path_effects
+from matplotlib.colors import ListedColormap
 import numpy as np
 from scipy import ndimage
 from geographiclib.geodesic import Geodesic
@@ -278,46 +281,82 @@ def plan_route(targets, initial, xs, ys, original, step, radius, coverage_reward
     return route, actions, covered, distance
 
 
+def write_route_gpx(path, route, origin):
+    """Export ordered route points from local east/north metres to WGS84."""
+    gpx = gpxpy.gpx.GPX()
+    gpx.creator = "GPS Coverage route planner"
+    planned_route = gpxpy.gpx.GPXRoute(name="Coverage route")
+    gpx.routes.append(planned_route)
+    for index, (east, north) in enumerate(route):
+        position = Geodesic.WGS84.Direct(
+            *origin, math.degrees(math.atan2(east, north)), math.hypot(east, north)
+        )
+        name = "Start" if index == 0 else "End" if index == len(route) - 1 else f"Point {index}"
+        planned_route.points.append(gpxpy.gpx.GPXRoutePoint(
+            latitude=position["lat2"], longitude=position["lon2"], name=name,
+        ))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(gpx.to_xml(), encoding="utf-8")
+
+
 def plot(path, east, north, grid, regions, targets, route, route_actions, tracks):
-    fig, ax = plt.subplots(figsize=(10, 8))
+    background, text = "#FAFAF7", "#303B40"
+    teal, plum = "#087F8C", "#754668"
+    route_halo = [path_effects.Stroke(linewidth=4, foreground="white"),
+                  path_effects.Normal()]
+    fig, ax = plt.subplots(figsize=(10, 8), facecolor=background)
+    ax.set_facecolor(background)
     ax.imshow(grid, origin="lower", interpolation="nearest",
               extent=(east[0] - .25, east[-1] + .25, north[0] - .25, north[-1] + .25),
-              cmap="Greys", vmin=0, vmax=1, alpha=.45)
+              cmap=ListedColormap([background, "#DFE3DF"]), vmin=0, vmax=1,
+              zorder=0)
     for region in regions:
         x, y = region.exterior.xy
-        ax.fill(x, y, color="#f59e0b", alpha=.3)
+        ax.fill(x, y, color="#F3E7C7", linewidth=0, zorder=1)
     for track in tracks:
-        ax.plot(*zip(*track), color="#2563eb", alpha=.55, linewidth=.8)
+        ax.plot(*zip(*track), color="#8C9EAD", alpha=.65, linewidth=.8, zorder=2)
     if targets:
-        ax.scatter(*zip(*targets), s=10, color="#dc2626", label="Sampled targets")
+        ax.scatter(*zip(*targets), s=6, color="#BC7865", alpha=.65,
+                   edgecolors="none", zorder=3, label="Sampled targets")
     track_labelled = exploration_labelled = join_labelled = False
     for kind, points in route_actions:
         if kind == "target":
-            ax.plot(*zip(*points), "o-", color="#16a34a", linewidth=2,
+            ax.plot(*zip(*points), "o-", color=teal, linewidth=2,
+                    markersize=4, markeredgewidth=0, path_effects=route_halo, zorder=4,
                     label="Exploration leg" if not exploration_labelled else None)
             exploration_labelled = True
         else:
             if len(points) > 1 and math.dist(points[0], points[1]) > 0.05:
-                ax.plot(*zip(*points[:2]), "--", color="#16a34a", linewidth=1.5,
+                ax.plot(*zip(*points[:2]), "--", color=teal, linewidth=1.5,
+                        path_effects=route_halo, zorder=4,
                         label="Join to original path" if not join_labelled else None)
                 join_labelled = True
             if len(points) > 1:
-                ax.plot(*zip(*points[1:]), "-", color="#9333ea", linewidth=2.5,
+                ax.plot(*zip(*points[1:]), "-", color=plum, linewidth=2.5,
+                        path_effects=route_halo, zorder=4,
                         label="Forward track segment" if not track_labelled else None)
                 track_labelled = True
     if route:
-        ax.scatter(*route[0], s=90, marker="o", color="#15803d", edgecolor="white",
+        ax.scatter(*route[0], s=90, marker="o", color=teal, edgecolor="white",
                    linewidth=1.5, zorder=5, label="Start")
         ax.annotate("Start", route[0], xytext=(6, 7), textcoords="offset points",
-                    color="#166534", weight="bold")
-        ax.scatter(*route[-1], s=110, marker="X", color="#dc2626", edgecolor="white",
+                    color=teal, weight="bold", zorder=7)
+        ax.scatter(*route[-1], s=110, marker="X", color=plum, edgecolor="white",
                    linewidth=1.2, zorder=6, label="End")
         ax.annotate("End", route[-1], xytext=(6, 7), textcoords="offset points",
-                    color="#b91c1c", weight="bold")
+                    color=plum, weight="bold", zorder=7)
     ax.set(xlabel="East (m)", ylabel="North (m)", title="Prize-collecting coverage route")
     ax.set_aspect("equal", adjustable="datalim")
-    ax.grid(alpha=.2)
-    ax.legend(loc="best")
+    ax.set_axisbelow(True)
+    ax.grid(color="#303B40", alpha=.07, linewidth=.7)
+    ax.tick_params(colors=text)
+    for label in (ax.xaxis.label, ax.yaxis.label, ax.title):
+        label.set_color(text)
+    for spine in ax.spines.values():
+        spine.set_color("#C8CECA")
+        spine.set_linewidth(.8)
+    ax.legend(loc="best", facecolor=background, edgecolor="#DFE3DF",
+              labelcolor=text, framealpha=.95)
     fig.tight_layout()
     fig.savefig(path, dpi=180)
     plt.close(fig)
@@ -327,8 +366,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("grid", type=Path)
     parser.add_argument("tracks", type=Path, help="Folder of original GPX recordings")
-    parser.add_argument("--output", type=Path, help="Route CSV (default: beside grid)")
-    parser.add_argument("--plot", type=Path, help="Diagnostic PNG (default: beside route CSV)")
+    parser.add_argument("--output", type=Path, help="Route GPX (default: beside grid)")
+    parser.add_argument("--plot", type=Path, help="Diagnostic PNG (default: beside route GPX)")
 
     parser.add_argument("--coverage", choices=("light", "balanced", "thorough"),
                         default="balanced", help="How strongly to favor new coverage")
@@ -336,7 +375,7 @@ def main():
                         help="Maximum planned route distance in metres")
     parser.add_argument("--leg-length", type=float, default=30.0,
                         help="Maximum direct exploration leg in metres")
-    parser.add_argument("--target-spacing", type=float, default=5.0,
+    parser.add_argument("--target-spacing", type=float, default=2.0,
                         help="Spacing between sampled exploration targets in metres")
     parser.add_argument("--track-use", choices=("occasional", "regular", "frequent"),
                         default="frequent", help="How often and how long to follow recorded tracks")
@@ -351,7 +390,7 @@ def main():
         "distance-cost": (float, None), "max-distance": (float, None),
         "max-stops": (int, 50), "max-leg-length": (float, None),
         "turn-cost": (float, 0.75),
-        "crossing-cost": (float, 0.2),
+        "crossing-cost": (float, 0.8),
     }
     for option, (value_type, default) in advanced.items():
         parser.add_argument(f"--{option}", type=value_type, default=default,
@@ -387,7 +426,7 @@ def main():
         parser.error("Turn cost cannot be negative")
     if args.crossing_cost < 0:
         parser.error("Crossing cost cannot be negative")
-    output = args.output or args.grid.with_name("planned_route.csv")
+    output = args.output or args.grid.with_name("planned_route.gpx")
     plot_path = args.plot or output.with_suffix(".png")
     try:
         east, north, grid = read_grid(args.grid, args.grid_step)
@@ -413,26 +452,7 @@ def main():
             args.distance_cost, args.max_distance, args.max_stops, args.max_track_segments,
             args.max_leg_length, args.turn_cost, args.crossing_cost,
         )
-        output.parent.mkdir(parents=True, exist_ok=True)
-        with output.open("w", newline="", encoding="utf-8") as file:
-            writer = csv.writer(file)
-            writer.writerow(("east_m", "north_m", "order", "action"))
-            writer.writerow((f"{route[0][0]:.3f}", f"{route[0][1]:.3f}", 0, "start"))
-            order = 1
-            for kind, points in route_actions:
-                if kind == "target":
-                    writer.writerow((f"{points[-1][0]:.3f}", f"{points[-1][1]:.3f}", order, "explore"))
-                    order += 1
-                    continue
-                join_needed = math.dist(points[0], points[1]) > 0.05
-                if join_needed:
-                    writer.writerow((f"{points[1][0]:.3f}", f"{points[1][1]:.3f}", order, "track_join"))
-                    order += 1
-                for index, point in enumerate(points[1:]):
-                    if join_needed and index == 0:
-                        continue
-                    writer.writerow((f"{point[0]:.3f}", f"{point[1]:.3f}", order, "track"))
-                    order += 1
+        write_route_gpx(output, route, origin)
         plot(plot_path, east, north, grid, regions, targets, route, route_actions, tracks)
     except (OSError, ValueError, KeyError, IndexError) as exc:
         parser.error(str(exc))
