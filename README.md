@@ -49,7 +49,7 @@ python3 scripts/plan_coverage_route.py \
   data/13_10_2026_evening
 ```
 
-The planner writes `planned_route.csv` and `planned_route.png` beside the grid. Route CSV coordinates use the same local east/north metre frame as the grid, and the `action` column identifies exploration points, connectors, and points that follow a recorded track. The main tuning options are:
+The planner writes `planned_route.gpx` and `planned_route.png` beside the grid. The GPX contains an ordered route in WGS84 latitude/longitude, converted from the grid's local east/north metres using `coordinate_origin.json`. It includes exploration points, connectors, and points that follow a recorded track, with named start and end points. The main tuning options are:
 
 | Option | Default | Meaning |
 | --- | ---: | --- |
@@ -58,9 +58,9 @@ The planner writes `planned_route.csv` and `planned_route.png` beside the grid. 
 | `--leg-length` | `20` | Maximum length of a direct exploration leg, in metres |
 | `--target-spacing` | `5` | Spacing between sampled exploration targets, in metres |
 | `--track-use` | `frequent` | `occasional`, `regular`, or `frequent`: trades track section length against how many sections are allowed |
-| `--output`, `--plot` | beside grid | Override route CSV and diagnostic PNG paths |
+| `--output`, `--plot` | beside grid | Override route GPX and diagnostic PNG paths |
 
-`--track-use occasional` allows up to 5 track sections of 20 m each; `regular` allows up to 15 sections of 15 m; `frequent` allows up to 30 sections of 10 m. The planner still includes the connector when scoring a track section. Enclosed regions are uncovered grid components inside the convex hull of covered cells. The route starts at the recorded point nearest any target. This prototype does not write GPX.
+`--track-use occasional` allows up to 5 track sections of 20 m each; `regular` allows up to 15 sections of 15 m; `frequent` allows up to 30 sections of 10 m. The planner still includes the connector when scoring a track section. Enclosed regions are uncovered grid components inside the convex hull of covered cells. The route starts at the recorded point nearest any target.
 
 Detailed options such as grid spacing, sensor radius, random seed, scoring weights, and stop limits remain available as advanced CLI overrides, but are hidden from the short `--help` list. `--turn-cost` defaults to `0.75`: a 180-degree turn subtracts 75% of that candidate's coverage and track reward and adds 7.5 times the normal distance penalty, strongly favoring a short step after a sharp turn. The added distance penalty falls with the square of the turn angle. `--crossing-cost` defaults to `0.2`, subtracting 20% of a candidate's reward for each interior crossing of the earlier route. Increase either value to discourage the behavior more strongly; set it to `0` to disable that penalty. For example, `--sensor-radius 8` overrides the default sensor model. Grid spacing must match the input CSV.
 
